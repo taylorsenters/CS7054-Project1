@@ -1,6 +1,6 @@
 ---
 title: "Project1"
-author: Your Name
+author: Taylor_Senters
 output: word_document
 ---
 
@@ -8,19 +8,31 @@ output: word_document
 library(knitr)
 knitr::opts_chunk$set(echo = TRUE)
 
-# FIXME: change the input file to TCGA_breast_cancer_ERpositive_vs_ERnegative_PAM50.tsv
-
-file <- "TCGA_breast_cancer_LumA_vs_Basal_PAM50.tsv"
+file <- "TCGA_breast_cancer_ERPositive_vs_ERNegative_PAM50.tsv"
 first10 <- c('NAT1','BIRC5','BAG1','BCL2','BLVRA','CCNB1','CCNE1','CDC6','CDC20','CDH3')
 ```
 
 ## Assignment
 
-Please paste the assignment here
+This assignment builds upon the R/RStudio class and expands the n-fold cross-validation example.
+
+1.  For the assignment use the second dataset called TCGA_breast_cancer_Positive_vs_Negative_PAM50.tsv that shows ER assignment for each sample (Positive vs. Negative).
+2.  Compute 5-fold and 10-fold cross-validation estimates of prediction accuracies of ER using all genes by utilizing logistic regression and compare with NNC (2x2 table).
+3.  Modify the the R markdown document template to report your computation and results in a table format.
+4.  comment on the quality of results
+5.  In the second part of the assignment use Project1fs.R to process a large data set by first removing all genes with sd \< 1 and subsequently use Feature selection to pick top 50 genes vs top 100 genes for cross-validation based on the t-test statistic.
+6.  For extra credit - please replace centroid based classifier with one utilizing logistic or lasso regression similarly to the first part of the assignment and report on any difficulties.
+
+For the assignment use Project1.Rmd file which has a number “FIXME:” labels indicating where your intervention is required. There is a companion Project1.R where you can test and debug your code before adding it to Project1.Rmd.
+
+For extra points use lasso regression on the large dataset instead of logistic regression.
+
+The assignment is due on -- February 12, 2026 midnight. 
+
+# Part 1 
 
 ## Reading data
 
-Please add R code that reads data here - 
 reading file: `r file`
 
 ```{r reading_data, echo=FALSE}
@@ -40,14 +52,12 @@ header2 <- scan(file, skip = 1, nlines = 1, sep="\t", what = character())
 
 ## Computation
 
-Please add R code that computes the results
-
 ```{r computation, echo=FALSE}
 cross_validation <- function (nfold, alg="centroid") {
 
   # split each cancer type samples into nfold groups
-  LumA_groups <- split(sample(colnames(LumA)), 1+(seq_along(colnames(LumA)) %% nfold))
-  Basal_groups <- split(sample(colnames(Basal)), 1+(seq_along(colnames(Basal)) %% nfold))
+  Positive_groups <- split(sample(colnames(Positive)), 1+(seq_along(colnames(Positive)) %% nfold))
+  Negative_groups <- split(sample(colnames(Negative)), 1+(seq_along(colnames(Negative)) %% nfold))
 
   result <- array()
 
@@ -55,82 +65,99 @@ cross_validation <- function (nfold, alg="centroid") {
   for (test_group in 1:nfold) {
 
     # return all samples in the chosen test group
-    testLumA <- LumA[,colnames(LumA) %in% unlist(LumA_groups[test_group])]
-    testBasal <- Basal[,colnames(Basal) %in% unlist(Basal_groups[test_group])]
+    testPositive <- Positive[,colnames(Positive) %in% unlist(Positive_groups[test_group])]
+    testNegative <- Negative[,colnames(Negative) %in% unlist(Negative_groups[test_group])]
 
     # return all samples *not* in the chosen test group 
-    trainingLumA <- LumA[,!(colnames(LumA) %in% unlist(LumA_groups[test_group]))]
-    trainingBasal <- Basal[,!(colnames(Basal) %in% unlist(Basal_groups[test_group]))]
+    trainingPositive <- Positive[,!(colnames(Positive) %in% unlist(Positive_groups[test_group]))]
+    trainingNegative <- Negative[,!(colnames(Negative) %in% unlist(Negative_groups[test_group]))]
 
     if (alg == "centroid") {
        # compute centroid for each cancer type -- mean for each gene based on all samples
        # note -- rows are gene
-       centroidLumA <- rowMeans(trainingLumA)
-       centroidBasal <- rowMeans(trainingBasal)
+       centroidPositive <- rowMeans(trainingPositive)
+       centroidNegative <- rowMeans(trainingNegative)
 
        # For each sample in the test set decide whether it will be classified
-       # distance from centroid Lum A: sum(abs(x-centroidLumA))
-       # distance from centroid Basal: sum(abs(x-centroidBasal))
+       # distance from centroid Positive: sum(abs(x-centroidPositive))
+       # distance from centroid Negative: sum(abs(x-centroidNegative))
        # distance is a sum of distances over all genes 
        # misclassification if when the distance is greater from centroid associated with known result
-       misclassifiedLumA <<- sum(sapply(testLumA, function(x) { sum(abs(x-centroidLumA))>sum(abs(x-centroidBasal)) }))
-       misclassifiedBasal <<- sum(sapply(testBasal, function(x) { sum(abs(x-centroidLumA))<sum(abs(x-centroidBasal)) }))
+       misclassifiedPositive <- sum(sapply(testPositive, function(x) { sum(abs(x-centroidPositive))>sum(abs(x-centroidNegative)) }))
+       misclassifiedNegative <- sum(sapply(testNegative, function(x) { sum(abs(x-centroidPositive))<sum(abs(x-centroidNegative)) }))
     }
 
     if (alg == "GLM") {
-      # FIXME: ADD GLM
-      misclassifiedLumA <<- 0
-      misclassifiedBasal <<- 0
+      # format training data
+      training_data <- rbind(cbind(data.frame(t(trainingPositive)), cancer=0), cbind(data.frame(t(trainingNegative)), cancer=1))
+      
+      # format test data
+      test_data_positive <- data.frame(t(testPositive))
+      test_data_negative <- data.frame(t(testNegative))
+      
+      # fit model
+      model <- glm(cancer~., data=training_data, family=binomial)
+      
+      # make predictions
+      p_positive <- predict(model, newdata=test_data_positive, type="response")
+      p_negative <- predict(model, newdata=test_data_negative, type="response")
+      
+      # calculate misclassified
+      misclassifiedPositive <- sum(ifelse(p_positive < 0.5, 0, 1))
+      misclassifiedNegative <- sum(ifelse(p_negative >= 0.5, 0, 1))
     }
 
-    result[test_group] <- (misclassifiedLumA+misclassifiedBasal)/(ncol(testLumA)+ncol(testBasal))
+    result[test_group] <- (misclassifiedPositive+misclassifiedNegative)/(ncol(testPositive)+ncol(testNegative))
  }
 
  # c(mean(result), sd(result))
- paste("mean=",mean(result),"sd=",sd(result))
+ # paste("mean=",mean(result),"sd=",sd(result))
+  return(c(mean = round(mean(result), 4), sd = round(sd(result), 4)))
 }
 
 
 system.time({
-
-  # FIXME: the data file has ER "Positive" / "Negative" instead of cancer type
   
-LumA <- data[,header2=='Luminal A']
-Basal <- data[,header2=='Basal-like']
+Positive <- data[,header2=='Positive']
+Negative <- data[,header2=='Negative']
 
 kNNC_5_all <- cross_validation(nfold=5)
 GLM_5_all <- cross_validation(nfold=5, alg="GLM")
 
-kNNC_10_all <- cross_validation(nfold=20)
+kNNC_10_all <- cross_validation(nfold=10)
 GLM_10_all <- cross_validation(nfold=10, alg="GLM")
-
-# FIXME: add code to compute 10 fold cross validation for GLM and kNNC
 
 })
 
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code.
-
 ## Results
 
-These are our results:
+### 5-fold and 10-fold Cross Validation Estimates for GLM and kNNC
 
-### 5-fold cross validation
 ```{r results5, echo=FALSE}
-x<-data.frame("GLM"=c(GLM_5_all,GLM_10_all),"kNNC"=c(kNNC_5_all,kNNC_10_all))
-rownames(x) <- c("5-fold","10-fold")
-kable(x)
+results_table <- data.frame(
+  "GLM_Mean" = c(GLM_5_all["mean"], GLM_10_all["mean"]),
+  "GLM_SD"   = c(GLM_5_all["sd"],   GLM_10_all["sd"]),
+  "kNNC_Mean"= c(kNNC_5_all["mean"], kNNC_10_all["mean"]),
+  "kNNC_SD"  = c(kNNC_5_all["sd"],   kNNC_10_all["sd"])
+)
+results_table <- round(results_table, 4)
+
+rownames(results_table) <- c("5-Fold", "10-Fold")
+
+kable(results_table)
 ```
 
+## Part 1 Discussion
 
-## Discussion
-
-This is what I found out
+Both GLM and kNNC performed well with error rates around 6-7%. For the 5-fold Cross Validation, kNNC had a slightly lower error rate at 6.56% compared to the GLM error rate of 6.76%. For the 10-fold Cross Validation, kNNC again performed slightly better at 6.37% compared to GLM at 6.94%.The standard deviations for both kNNC and GLM for the 5-fold and 10-fold cross validations were all low, ranging from 0.0111 to 0.0277, indicating the predictions were consistent.
 
 # Part 2
 
-Change eval=TRUE when ready to include Project1fs.R
-
-```{r part2, eval = FALSE, code=readLines("Project1fs.R"), echo=FALSE}
+```{r part2, eval = TRUE, code=readLines("Project1fs.R"), echo=FALSE}
 ```
+
+## Part 2 Discussion
+
+For Part 2, all genes with a standard deviation less than 1 were removed, and then a t-test was used to determine the top 50 and top 100 genes. Error rates and standard deviations were then computed for kNNC, GLM, and Lasso regression for both the top 50 genes and top 100 genes, as the table above shows. Specifically for the GLM, many warnings were output stating the algorithm did not converge and fitted probabilities numerically 0 or 1 occurred. As seen in the table, GLM had the worst error rates ranging from 15-17% and higher standard deviations at 0.046 and 0.0785, indicating the model was overfitting and unstable.Implementing Lasso regression helped stabilize the model via regularization to prevent overfitting, and therefore Lasso regression had much lower error rates around 5%, much closer to the kNNC error rates around 4%.
